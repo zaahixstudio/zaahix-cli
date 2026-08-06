@@ -2,7 +2,9 @@ import readline from "readline";
 import chalk from "chalk";
 import path from "path";
 import { runTool } from "../tools";
+import { toolSchemas } from "../tools/schemas";
 import { providerManager } from "../providers/providerManager";
+import { AgentMessage } from "../providers/types";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
@@ -66,7 +68,133 @@ async function executeToolWithRetry(
   return { success: false, error: lastError, retries };
 }
 
-export async function runDynamicAgent(
+function formatToolCall(tool: string, args: any): string {
+  const relativePath = (filePath: string) => {
+    if (!filePath) return "";
+    try {
+      return path.relative(process.cwd(), filePath);
+    } catch {
+      return filePath;
+    }
+  };
+
+  switch (tool) {
+    case "read_file":
+    case "read_file_chunk":
+      return `Reading ${chalk.blue(relativePath(args.path))}`;
+    case "write_file":
+      return `Writing ${chalk.blue(relativePath(args.path))}`;
+    case "patch_file":
+      return `Patching ${chalk.blue(relativePath(args.path))}`;
+    case "scan_project":
+      return `Scanning project structure at ${chalk.blue(relativePath(args.path || "."))}`;
+    case "list_files":
+      return `Listing files in ${chalk.blue(relativePath(args.path || "."))}`;
+    case "search_grep":
+      return `Searching codebase for "${chalk.yellow(args.query)}"`;
+    case "semantic_search":
+      return `Searching semantic index for "${chalk.yellow(args.query)}"`;
+    case "analyze_project":
+      return `Analyzing project at ${chalk.blue(relativePath(args.path || "."))}`;
+    default:
+      return `Executing ${chalk.bold(tool)}`;
+  }
+}
+
+// ============================================================
+// NATIVE TOOL-CALLING LOOP (providers with askAgent support)
+// ============================================================
+async function runNativeAgent(
+  goal: string,
+  systemInstructions: string,
+  context: any,
+  rl?: readline.Interface,
+  onToken?: (token: string) => void
+): Promise<string> {
+  const provider = providerManager.getCurrentProvider();
+  if (!provider.askAgent) throw new Error("provider does not support native tool calling");
+
+  const messages: AgentMessage[] = [];
+  messages.push({
+    role: "system",
+    content:
+      systemInstructions +
+      `\n\nCURRENT WORKSPACE DIRECTORY: "${process.cwd()}"
+If the user asks you to build/create/set up/implement, DO NOT stop after a few files. Keep invoking tools until the work is done, component by component, file by file. Only respond with text when the work is complete or you must ask a clarifying question. Self-correct if a tool fails.`,
+  });
+
+  if (Array.isArray(context)) {
+    for (const m of context) {
+      if (m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string") {
+        messages.push({ role: m.role, content: m.content });
+      }
+    }
+  }
+  messages.push({ role: "user", content: goal });
+
+  const isAutoApprove = process.env.ZAAHIX_AUTO_APPROVE === "true";
+  const maxIterations = isAutoApprove ? 45 : 15;
+  let iterations = 0;
+
+  while (iterations < maxIterations) {
+    iterations++;
+
+    const result = await provider.askAgent(messages, toolSchemas);
+
+    if (result.toolCalls && result.toolCalls.length > 0) {
+      messages.push({ role: "assistant", content: result.content || "", tool_calls: result.toolCalls });
+
+      for (const tc of result.toolCalls) {
+        let args: any = {};
+        try {
+          args = JSON.parse(tc.arguments || "{}");
+        } catch {
+          args = {};
+        }
+
+        console.log(chalk.cyan(`\n✦ ${formatToolCall(tc.name, args)}`));
+        const { success, result: toolResult, error, retries } = await executeToolWithRetry(tc.name, args, rl);
+
+        if (success) {
+          console.log(chalk.green(`  ✔ Success${retries > 0 ? ` (after ${retries} retries)` : ""}`));
+        } else {
+          console.log(chalk.red(`  ✘ Failed: ${error}`));
+        }
+
+        const content =
+          typeof toolResult === "string"
+            ? toolResult
+            : JSON.stringify(toolResult ?? error ?? "");
+
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          name: tc.name,
+          content,
+        });
+
+        if (isAutoApprove) {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+        }
+      }
+      continue;
+    }
+
+    // No tool calls → the model answered; stream it if a handler is present
+    const answer = result.content || "";
+    if (onToken && answer) {
+      onToken(answer);
+    }
+    return answer;
+  }
+
+  return "⚠️ Reached the maximum number of agent steps. Try a more specific request.";
+}
+
+// ============================================================
+// LEGACY PROMPT-BASED AGENT (fallback for providers without askAgent)
+// ============================================================
+async function runDynamicAgentLegacy(
   goal: string,
   systemInstructions: string,
   context: any,
@@ -79,7 +207,6 @@ export async function runDynamicAgent(
   const isAutoApprove = process.env.ZAAHIX_AUTO_APPROVE === "true";
   const maxIterations = isAutoApprove ? 45 : 15;
 
-  // Convert chatHistory to a formatted string
   let historyStr = "(No previous conversation history)";
   if (Array.isArray(context) && context.length > 0) {
     historyStr = context
@@ -136,12 +263,12 @@ AVAILABLE TOOLS:
 - index_rebuild (args: { type?: "semantic" | "embeddings" | "all" }) - Rebuilds indexes from scratch.
 
 DECISION INSTRUCTIONS:
-1. EXTREMELY IMPORTANT: Review the CONVERSATION HISTORY above. If you (ASSISTANT) already gathered information or read a file in a previous turn (e.g. read_file of platformspecification.md), DO NOT run the same tool again. Use the information already present in the history!
+1. EXTREMELY IMPORTANT: Review the CONVERSATION HISTORY above. If you (ASSISTANT) already gathered information or read a file in a previous turn, DO NOT run the same tool again. Use the information already present in the history!
 2. If the user asks you to build, create, set up, implement, or get to work, DO NOT write just a few files and then stop to explain. Keep invoking tools sequentially to build out the full application code, component by component, file by file. Only choose "respond" when you have done all the work requested or you need to ask the user a specific question.
 3. If a tool failed in this turn, inspect the error carefully, search for the correct files/folders/patterns, and try again.
 4. You MUST return a single JSON object matching this schema:
 {
-  "thought": "Explain your thinking (e.g. 'The user asks if I can build the AIMO Chat platform. I will begin by creating the backend and frontend directory structures and configuration files, and write the initial scaffolding using write_file.')",
+  "thought": "Explain your thinking",
   "action": "call_tool" | "respond",
   "tool": "tool_name_here",
   "args": { ... }
@@ -158,42 +285,7 @@ Do not wrap your output in anything other than this JSON block.
     }
 
     if (decision.action === "call_tool" && decision.tool) {
-      const formatToolCall = (tool: string, args: any): string => {
-        const relativePath = (filePath: string) => {
-          if (!filePath) return "";
-          try {
-            return path.relative(process.cwd(), filePath);
-          } catch {
-            return filePath;
-          }
-        };
-
-        switch (tool) {
-          case "read_file":
-          case "read_file_chunk":
-            return `Reading ${chalk.blue(relativePath(args.path))}`;
-          case "write_file":
-            return `Writing ${chalk.blue(relativePath(args.path))}`;
-          case "patch_file":
-            return `Patching ${chalk.blue(relativePath(args.path))}`;
-          case "scan_project":
-            return `Scanning project structure at ${chalk.blue(relativePath(args.path || "."))}`;
-          case "list_files":
-            return `Listing files in ${chalk.blue(relativePath(args.path || "."))}`;
-          case "search_grep":
-            return `Searching codebase for "${chalk.yellow(args.query)}"`;
-          case "semantic_search":
-            return `Searching semantic index for "${chalk.yellow(args.query)}"`;
-          case "analyze_project":
-            return `Analyzing project at ${chalk.blue(relativePath(args.path || "."))}`;
-          default:
-            return `Executing ${chalk.bold(tool)}`;
-        }
-      };
-
-      console.log(
-        chalk.cyan(`\n✦ ${formatToolCall(decision.tool, decision.args || {})}`)
-      );
+      console.log(chalk.cyan(`\n✦ ${formatToolCall(decision.tool, decision.args || {})}`));
 
       const { success, result, error, retries } = await executeToolWithRetry(
         decision.tool,
@@ -220,13 +312,11 @@ Do not wrap your output in anything other than this JSON block.
         await new Promise((resolve) => setTimeout(resolve, 800));
       }
     } else {
-      // Fallback
       finished = true;
       break;
     }
   }
 
-  // Construct execution context for final response
   const executionContext = stepsHistory
     .map((r, idx) => {
       let outputStr = "";
@@ -274,9 +364,29 @@ INSTRUCTIONS FOR YOUR RESPONSE:
 1. Speak directly to the user as a software engineer who is executing their request.
 2. State clearly what you have achieved in this turn (e.g. files written, folders scanned, search results found).
 3. If you have created or modified code, give a brief, concise summary of what was implemented.
-4. If there is more work remaining to fulfill the user's goal (e.g. they asked to implement a full backend but you only finished the scaffolding), explain what is missing and ask if you should continue building.
+4. If there is more work remaining to fulfill the user's goal, explain what is missing and ask if you should continue building.
 5. Keep your response focused on the actual work done. Avoid corporate speak, timeline reviews, or suggesting meetings. Keep it technical, clean, and developer-focused.
 `;
 
   return await providerManager.ask(finalPrompt, JSON.stringify(context), onToken);
+}
+
+export async function runDynamicAgent(
+  goal: string,
+  systemInstructions: string,
+  context: any,
+  rl?: readline.Interface,
+  onToken?: (token: string) => void
+): Promise<string> {
+  const provider = providerManager.getCurrentProvider();
+
+  if (provider.askAgent) {
+    try {
+      return await runNativeAgent(goal, systemInstructions, context, rl, onToken);
+    } catch (err: any) {
+      console.log(chalk.yellow(`\n⚠️ Native agent loop failed (${err?.message || err}); falling back to prompt-based agent.`));
+    }
+  }
+
+  return runDynamicAgentLegacy(goal, systemInstructions, context, rl, onToken);
 }
