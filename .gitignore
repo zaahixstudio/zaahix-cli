@@ -31,4 +31,7 @@ coverage/
 .eslintcache
 
 # Zaahix session data
-.zaahix/test-*.tmp.js
+.zaahix/
+
+# Temp test scripts
+test-*.tmp.js
