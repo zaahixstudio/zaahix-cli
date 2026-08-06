@@ -49,6 +49,11 @@ export function runCLI(argv: string[]) {
 
   const isRootChat = rootArgs.length === 0 || rootArgs.every((arg) => hasFlag(arg));
 
+  if (rootArgs.includes("-v") || rootArgs.includes("--version")) {
+    console.log(VERSION);
+    process.exit(0);
+  }
+
   if (isRootChat) {
     if (rootArgs.includes("-y") || rootArgs.includes("--auto-approve")) {
       process.env.ZAAHIX_AUTO_APPROVE = "true";
