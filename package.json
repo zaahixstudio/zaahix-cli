@@ -1,0 +1,37 @@
+{
+  "name": "zaahix-cli",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "commonjs",
+  "bin": {
+    "zaahix": "dist/index.js"
+  },
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "test:watch": "jest --watch",
+    "build": "tsc",
+    "prepare": "npm run build",
+    "start": "node dist/index.js",
+    "lint": "echo \"Linting not configured yet\""
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "axios": "^1.0.0",
+    "chalk": "^4.1.2",
+    "commander": "^12.1.0",
+    "dotenv": "^16.0.0",
+    "fs-extra": "^11.0.0",
+    "openai": "^6.44.0"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/jest": "^29.0.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}
