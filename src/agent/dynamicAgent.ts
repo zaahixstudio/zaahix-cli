@@ -430,7 +430,11 @@ export async function runDynamicAgent(
 ): Promise<string> {
   const provider = providerManager.getCurrentProvider();
 
-  if (provider.askAgent) {
+  // Native tool-calling is opt-in (ZAAHIX_AGENT_MODE=native). The prompt-based agent
+  // is the default because some free-tier models are unreliable at native tool calls.
+  const nativeEnabled = process.env.ZAAHIX_AGENT_MODE === "native";
+
+  if (nativeEnabled && provider.askAgent) {
     try {
       return await runNativeAgent(goal, systemInstructions, context, rl, onToken, onTool);
     } catch (err: any) {
