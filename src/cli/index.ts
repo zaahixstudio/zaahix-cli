@@ -9,7 +9,7 @@ import { printModeHeader } from "../utils/branding";
 
 const VERSION = "1.0.0";
 
-const AVAILABLE_PROVIDERS = ["openai", "gemini", "groq", "openrouter", "sambanova", "longcat", "omniroute"];
+const AVAILABLE_PROVIDERS = ["ai-bank", "openai", "gemini", "groq", "openrouter", "sambanova", "longcat", "omniroute"];
 
 export function runCLI(argv: string[]) {
   const program = new Command();

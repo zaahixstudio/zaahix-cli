@@ -5,6 +5,7 @@ import { OpenRouterProvider } from "./openrouter";
 import { GeminiProvider } from "./gemini";
 import { SambanovaProvider } from "./sambanova";
 import { OmniRouteProvider } from "./omniroute";
+import { AiBankProvider } from "./aiBank";
 import { LLMProvider } from "./types";
 import { ProviderError, ErrorCode } from "../utils/errors";
 
@@ -22,9 +23,10 @@ class OpenAIProvider implements LLMProvider {
 
 export class ProviderManager {
   private providers = new Map<string, LLMProvider>();
-  private fallbackChain: string[] = ["openai", "gemini", "groq", "openrouter"];
+  private fallbackChain: string[] = ["ai-bank", "openai", "gemini", "groq", "openrouter"];
 
   constructor() {
+    this.register(new AiBankProvider());
     this.register(new OpenAIProvider());
     this.register(new GroqProvider());
     this.register(new LongCatProvider());

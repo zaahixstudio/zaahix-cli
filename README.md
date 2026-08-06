@@ -122,6 +122,7 @@ Zaahix supports multiple LLM providers:
 
 | Provider | Default Model | Rate Limit Handling |
 |----------|---------------|---------------------|
+| **AI API Bank** ⭐ | llama-3.3-70b-versatile | Naira billing, no per-session caps |
 | OpenAI | gpt-4o-mini | Retry with backoff |
 | Gemini | gemini-2.0-flash-lite | Multi-key rotation |
 | Groq | llama-3.3-70b-versatile | Retry with backoff |
@@ -129,6 +130,8 @@ Zaahix supports multiple LLM providers:
 | SambaNova | Meta-Llama-3.3-70B-Instruct | Retry with backoff |
 | LongCat | LongCat-2.0 | Retry with backoff |
 | Ollama (local) | qwen2.5-coder:7b | N/A |
+
+> ⭐ **AI API Bank** is the default engine behind zaahix. It routes through the standalone AI Bank (`ai.zaahix.com`) — every call bills your Naira wallet in real time (text = ₦5/call) instead of using your own provider keys. Set `AI_BANK_BASE_URL` and `AI_BANK_API_KEY` in `.env` and run `zaahix --provider ai-bank`.
 
 ### Provider Selection
 
@@ -160,8 +163,12 @@ GEMINI_MODEL=gemini-2.0-flash-lite
 
 ```bash
 # Provider selection
-ZAAHIX_PROVIDER=openai|gemini|groq|openrouter|sambanova|longcat
+ZAAHIX_PROVIDER=ai-bank|openai|gemini|groq|openrouter|sambanova|longcat|omniroute
 ZAAHIX_MODEL=gpt-4o-mini
+
+# AI API Bank (recommended — no provider keys needed)
+AI_BANK_BASE_URL=https://ai.zaahix.com
+AI_BANK_API_KEY=sk-brandai-...
 
 # OpenAI
 OPENAI_API_KEY=sk-...

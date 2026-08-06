@@ -11,6 +11,9 @@ function getProviderInfo(): { provider: string; model: string } {
   let model: string;
 
   switch (provider) {
+    case "ai-bank":
+      model = process.env.AI_BANK_MODEL || "llama-3.3-70b-versatile (via AI API Bank)";
+      break;
     case "groq":
       model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
       break;
