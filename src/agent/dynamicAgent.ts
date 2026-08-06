@@ -135,6 +135,8 @@ If the user asks you to build/create/set up/implement, DO NOT stop after a few f
   const isAutoApprove = process.env.ZAAHIX_AUTO_APPROVE === "true";
   const maxIterations = isAutoApprove ? 45 : 15;
   let iterations = 0;
+  let lastCallKey = "";
+  let repeatedCalls = 0;
 
   while (iterations < maxIterations) {
     iterations++;
@@ -142,6 +144,28 @@ If the user asks you to build/create/set up/implement, DO NOT stop after a few f
     const result = await provider.askAgent(messages, toolSchemas);
 
     if (result.toolCalls && result.toolCalls.length > 0) {
+      // Build a signature to detect the model looping on the same action
+      const callKey = result.toolCalls
+        .map((tc) => {
+          let a = "";
+          try { a = JSON.stringify(JSON.parse(tc.arguments || "{}")); } catch { a = tc.arguments || ""; }
+          return `${tc.name}:${a}`;
+        })
+        .join("|");
+
+      if (callKey === lastCallKey) repeatedCalls += 1;
+      else repeatedCalls = 0;
+      lastCallKey = callKey;
+
+      if (repeatedCalls >= 3) {
+        messages.push({
+          role: "system",
+          content: "You have repeated the same tool call without making progress. STOP calling tools now and answer the user directly based on the information you already gathered.",
+        });
+        const forced = await provider.askAgent(messages, toolSchemas);
+        return forced.content || "⚠️ The agent looped on the same action. Please ask a more specific question.";
+      }
+
       messages.push({ role: "assistant", content: result.content || "", tool_calls: result.toolCalls });
 
       for (const tc of result.toolCalls) {
