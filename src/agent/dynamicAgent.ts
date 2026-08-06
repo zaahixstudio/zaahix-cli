@@ -120,7 +120,9 @@ async function runNativeAgent(
     content:
       systemInstructions +
       `\n\nCURRENT WORKSPACE DIRECTORY: "${process.cwd()}"
-If the user asks you to build/create/set up/implement, DO NOT stop after a few files. Keep invoking tools until the work is done, component by component, file by file. Only respond with text when the work is complete or you must ask a clarifying question. Self-correct if a tool fails.`,
+If the user asks you to build/create/set up/implement, DO NOT stop after a few files. Keep invoking tools until the work is done, component by component, file by file.
+After a tool returns results, USE those results — do NOT call the same tool again unless you need different or new information. Answer the user as soon as you have enough information.
+Only respond with text when the work is complete or you must ask a clarifying question. Self-correct if a tool fails.`,
   });
 
   if (Array.isArray(context)) {
@@ -158,12 +160,19 @@ If the user asks you to build/create/set up/implement, DO NOT stop after a few f
       lastCallKey = callKey;
 
       if (repeatedCalls >= 3) {
-        messages.push({
-          role: "system",
-          content: "You have repeated the same tool call without making progress. STOP calling tools now and answer the user directly based on the information you already gathered.",
-        });
-        const forced = await provider.askAgent(messages, toolSchemas);
-        return forced.content || "⚠️ The agent looped on the same action. Please ask a more specific question.";
+        const results = messages
+          .filter((m) => m.role === "tool")
+          .map((m) => m.content)
+          .join("\n\n")
+          .slice(0, 12000);
+        console.log(chalk.yellow("\n⚠️ Detected a repeated tool call — finalizing your answer from the gathered results."));
+        const forced = await providerManager.ask(
+          `You previously executed tools and gathered this information:\n\n${results}\n\n` +
+            `Now answer the user's original request using it. Do NOT call any tools — respond with text only.\n\nOriginal request: "${goal}"`,
+          undefined,
+          onToken
+        );
+        return forced || "⚠️ The agent looped on the same action. Please ask a more specific question.";
       }
 
       messages.push({ role: "assistant", content: result.content || "", tool_calls: result.toolCalls });

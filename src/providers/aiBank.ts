@@ -2,6 +2,7 @@ import { LLMProvider, AgentMessage, AgentResult } from "./types";
 
 const BASE_URL = (process.env.AI_BANK_BASE_URL || "").replace(/\/+$/, "");
 const API_KEY = process.env.AI_BANK_API_KEY || "";
+const MODEL = process.env.AI_BANK_MODEL || "";
 
 interface ChatMsg {
   role: string;
@@ -69,6 +70,7 @@ export class AiBankProvider implements LLMProvider {
 
     const body: any = { messages };
     if (tools && tools.length > 0) body.tools = tools;
+    if (MODEL) body.model = MODEL;
 
     const res = await fetch(`${BASE_URL}/v1/chat/completions`, {
       method: "POST",
