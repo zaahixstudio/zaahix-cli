@@ -45,7 +45,8 @@ export async function runAgent(
   input: string,
   context: any,
   rl?: readline.Interface,
-  onToken?: (token: string) => void
+  onToken?: (token: string) => void,
+  onTool?: () => void
 ): Promise<string> {
   if (isCasualGreeting(input)) {
     process.env.ZAAHIX_MODEL_MODE = "chat";
@@ -67,7 +68,7 @@ export async function runAgent(
   if (isRepairRequest(input)) {
     process.env.ZAAHIX_MODEL_MODE = "code";
     try {
-      return await runFixMode(input, context, rl);
+      return await runFixMode(input, context, rl, onToken, onTool);
     } finally {
       delete process.env.ZAAHIX_MODEL_MODE;
     }
@@ -89,7 +90,7 @@ Be thorough, precise, self-correct if errors occur, and verify your results.`;
 
   process.env.ZAAHIX_MODEL_MODE = "code";
   try {
-    return await runDynamicAgent(input, systemInstructions, context, rl, onToken);
+    return await runDynamicAgent(input, systemInstructions, context, rl, onToken, onTool);
   } finally {
     delete process.env.ZAAHIX_MODEL_MODE;
   }

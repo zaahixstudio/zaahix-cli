@@ -207,7 +207,7 @@ export function startChat(resume: boolean = false) {
           firstToken = false;
         }
         process.stdout.write(token);
-      });
+      }, () => clearSpinner());
 
       clearSpinner();
       if (firstToken) {

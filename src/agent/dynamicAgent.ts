@@ -109,7 +109,8 @@ async function runNativeAgent(
   systemInstructions: string,
   context: any,
   rl?: readline.Interface,
-  onToken?: (token: string) => void
+  onToken?: (token: string) => void,
+  onTool?: () => void
 ): Promise<string> {
   const provider = providerManager.getCurrentProvider();
   if (!provider.askAgent) throw new Error("provider does not support native tool calling");
@@ -143,7 +144,19 @@ Only respond with text when the work is complete or you must ask a clarifying qu
   while (iterations < maxIterations) {
     iterations++;
 
-    const result = await provider.askAgent(messages, toolSchemas);
+    // One in-loop retry rides out transient upstream hiccups before falling back
+    let result;
+    try {
+      result = await provider.askAgent(messages, toolSchemas);
+    } catch (err: any) {
+      console.log(chalk.yellow(`  ⚠️ Upstream hiccup (${err?.message || err}) — retrying…`));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      try {
+        result = await provider.askAgent(messages, toolSchemas);
+      } catch (err2: any) {
+        throw err2;
+      }
+    }
 
     if (result.toolCalls && result.toolCalls.length > 0) {
       // Build a signature to detect the model looping on the same action
@@ -185,6 +198,7 @@ Only respond with text when the work is complete or you must ask a clarifying qu
           args = {};
         }
 
+        if (onTool) onTool();
         console.log(chalk.cyan(`\n✦ ${formatToolCall(tc.name, args)}`));
         const { success, result: toolResult, error, retries } = await executeToolWithRetry(tc.name, args, rl);
 
@@ -232,7 +246,8 @@ async function runDynamicAgentLegacy(
   systemInstructions: string,
   context: any,
   rl?: readline.Interface,
-  onToken?: (token: string) => void
+  onToken?: (token: string) => void,
+  onTool?: () => void
 ): Promise<string> {
   const stepsHistory: ToolStep[] = [];
   let finished = false;
@@ -318,6 +333,7 @@ Do not wrap your output in anything other than this JSON block.
     }
 
     if (decision.action === "call_tool" && decision.tool) {
+      if (onTool) onTool();
       console.log(chalk.cyan(`\n✦ ${formatToolCall(decision.tool, decision.args || {})}`));
 
       const { success, result, error, retries } = await executeToolWithRetry(
@@ -409,17 +425,18 @@ export async function runDynamicAgent(
   systemInstructions: string,
   context: any,
   rl?: readline.Interface,
-  onToken?: (token: string) => void
+  onToken?: (token: string) => void,
+  onTool?: () => void
 ): Promise<string> {
   const provider = providerManager.getCurrentProvider();
 
   if (provider.askAgent) {
     try {
-      return await runNativeAgent(goal, systemInstructions, context, rl, onToken);
+      return await runNativeAgent(goal, systemInstructions, context, rl, onToken, onTool);
     } catch (err: any) {
       console.log(chalk.yellow(`\n⚠️ Native agent loop failed (${err?.message || err}); falling back to prompt-based agent.`));
     }
   }
 
-  return runDynamicAgentLegacy(goal, systemInstructions, context, rl, onToken);
+  return runDynamicAgentLegacy(goal, systemInstructions, context, rl, onToken, onTool);
 }
